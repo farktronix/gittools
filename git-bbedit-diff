@@ -1,0 +1,163 @@
+#!/usr/bin/env python
+#
+#  gdiff
+#  
+#  Created by Dan Preston on 4/09/08.
+#
+
+import sys, commands, os, tempfile, filecmp
+from optparse import OptionParser
+
+name = "gdiff"
+gdiffVersion = "gdiff version 1.1"
+tempDir = "/tmp/"
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	fileNotPresentError
+#----------------------------------------------------------------------------------------------------------------------------
+
+def fileNotPresentError(repositoryPath, revision, chatty=True):
+	if chatty:
+		print "\tFile \"%s\" does not exist in repository at revision \"%s\"." % (repositoryPath, revision)
+
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	createTempFileForRevision
+#----------------------------------------------------------------------------------------------------------------------------
+
+def createTempFileForRevision( revision, repositoryPath, chatty=True ):
+	# Escape the path with quotes to handle the case where we have spaces.
+	command = "git show " + revision + ':"' + repositoryPath + '"'
+	
+	# Use git show to get the contents of the head of the file.
+	status, output = commands.getstatusoutput( command )
+	if status != 0:
+		fileNotPresentError( repositoryPath, revision, chatty )
+		return None
+	
+	# git show doesn't seem to append the final carriage return.
+	output = output + "\n"
+	
+	# Create the temp file name and write out the temp file.
+	nameRoot, extension = os.path.splitext( repositoryPath )
+	_, fileName = os.path.split( nameRoot )
+	temp = tempfile.mktemp( "_" + fileName + extension, name + "-" + revision + "_", tempDir )
+	f = open( temp, 'w' )
+	f.write( output )
+	f.close()
+	
+	return temp
+
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	performDiff
+#----------------------------------------------------------------------------------------------------------------------------
+
+def performDiff(compareFile, revision, chatty=True):
+	# Check that we have enough arguments.
+	
+	revision, _, revision2 = revision.partition("..")
+	
+	realpath = os.path.abspath( compareFile )
+	
+	head, relativePath = os.path.split( realpath )
+	fileName = relativePath
+	
+	if os.path.isdir( realpath ):
+		if chatty:
+			print "\t\"" + relativePath + "\" is a directory. " + name + " only compares files."
+		return
+	
+	found = False;
+	# Figure out what the relative path of the file is from the .git folder.
+	while (found == False) and (head != "/"):
+		gitPath = os.path.join( head, ".git" )
+		found = os.path.exists( gitPath )
+		if found == False:
+			head, tail = os.path.split( head )
+			relativePath = os.path.join( tail, relativePath )
+	
+	# Make sure we are actually in a git repository.
+	if (found == False) and (head == "/"):
+		if chatty:
+			print "\tThat file is not in a git repository."
+		return
+	
+	file1 = createTempFileForRevision( revision, relativePath, chatty )
+	if revision2:
+		file2 = createTempFileForRevision( revision2, relativePath, chatty )
+	else:
+		file2 = realpath
+		if os.path.exists(file2) == False:
+			fileNotPresentError( relativePath, "HEAD", chatty )
+			file2 = None
+		
+	if (file1 == None) or (file2 == None):
+		return
+	
+	same = filecmp.cmp( file2, file1 )
+	if same:
+		if chatty:
+			print "\tThe file \"" + fileName + "\" has no differences."
+	else:
+		# Escape the files with quotes to allow for files with spaces.
+		command = 'bbdiff "%s" "%s"' % ( file2, file1 )
+		status, output = commands.getstatusoutput( command )
+
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	cleanTmpDirectory
+#----------------------------------------------------------------------------------------------------------------------------
+
+def cleanTmpDirectory(chatty=True):
+	tempContents = os.listdir( tempDir )
+	for tmpFile in tempContents:
+		if tmpFile.startswith( name + "-" ):
+			filePath = tempDir + tmpFile
+			if chatty:
+				print "\tRemoving temp file:\"%s\"" % filePath
+			os.remove( filePath )
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	main
+#----------------------------------------------------------------------------------------------------------------------------
+
+def main(argv=None):
+	if argv is None:
+		argv = sys.argv
+	
+	# Set up options for the command line that we support.
+	description="A utility to compare files in a git repository using bbedit."
+	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean] [-r | --revision <revision(s)>] file1 [file2 ...]"
+	
+	parser = OptionParser(version=gdiffVersion, description=description, usage=usage)
+	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for gdiff to compare")
+	parser.add_option("--clean", action="store_true", dest="cleanTmp", default=False, help="Delete all of the temp files that gdiff has created. This will not affect the files currently being compared if any.")
+	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of gdiff")
+	
+	printUsage = True
+	(options, args) = parser.parse_args(argv[1:])
+	if options.cleanTmp:
+		cleanTmpDirectory(options.chatty)
+		printUsage = False
+	if len(args) > 0:
+		printUsage = False
+	
+	# See if we can see any reason that we need to print the usage for the app.
+	if printUsage:
+		parser.print_help()
+		return 2
+	else:
+		if options.revision:
+			rev = options.revision
+		else:
+			rev = "HEAD"
+		for gitFile in args:
+			if options.chatty:
+				print "Comparing \"%s\"." % gitFile
+			performDiff(gitFile, rev, options.chatty)
+	return 0
+
+if __name__ == "__main__":
+	sys.exit(main())
+
