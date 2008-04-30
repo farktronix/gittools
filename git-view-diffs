@@ -1,0 +1,38 @@
+#!/bin/sh
+# http://uszla.me.uk/space/blog/2007/11/21
+CACHED=no
+if test $# = 0; then
+    CACHED=old
+elif test "$1" = --cached; then
+    OLD=HEAD
+    CACHED=new
+    shift
+fi
+if test $# -gt 0; then
+    OLD="$1"; shift
+fi
+
+test $# -gt 0 && test -z "$CACHED" && NEW="$1"
+TMPDIR1=`mktemp -d /tmp/diff.XXXXXX`
+if test $CACHED = old; then
+  git-checkout-index -a --prefix=$TMPDIR1/
+else
+  git-archive --format=tar $OLD | (cd $TMPDIR1; tar xf -)
+fi
+
+#if test $CACHED = new; then
+#    TMPDIR2=`mktemp -d /tmp/diff.XXXXXX`
+#    git-checkout-index -a --prefix=$TMPDIR2/
+#    NEW=yes
+#elif test -z "$NEW"; then
+#    TMPDIR2=$(git rev-parse --show-cdup)
+#    test -z "$cdup" && TMPDIR2=.
+#else
+#    TMPDIR2=`mktemp -d /tmp/diff.XXXXXX`
+#    git-archive --format=tar $NEW | (cd $TMPDIR2; tar xf -)
+#fi
+
+opendiff $TMPDIR1 . -merge .
+
+#rm -rf $TMPDIR1
+#test ! -z "$NEW" && rm -rf $TMPDIR2

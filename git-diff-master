@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# git-diff-master
+# Jacob Farkas <jacobf@rkas.net>
+# Opens filemerge with a diff of the current working copy versus the master branch
+
+mktemp=`which mktemp`
+if [ -z $mktemp ]; then
+    tmpdir="/tmp/master" 
+else
+    tmpdir=`$mktemp /tmp/masterXXXXX`
+fi
+rm -rf $tmpdir
+mkdir -p $tmpdir 
+git-archive --format=tar master | (tar xf - -C $tmpdir)
+opendiff $tmpdir . -merge . | cat
+rm -rf $tmpdir

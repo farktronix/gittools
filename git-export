@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# git-export
+# Jacob Farkas <jacobf@rkas.net>
+# Exports the current branch to the given directory 
+
+if [ -z "$1" ]; then 
+    echo "usage: git-export [rev] path"
+    exit 1
+fi
+
+if [ "$#" == "1" ]; then
+    path=$1
+    rev="HEAD"
+else
+    rev=$1
+    path=$2
+fi
+
+if [ ! -e "$path" ]; then
+    mkdir -p "$path"
+fi
+
+git-archive --format=tar $rev | (tar xf - -C "$path")
