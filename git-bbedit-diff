@@ -8,9 +8,11 @@
 import sys, commands, os, tempfile, filecmp
 from optparse import OptionParser
 
-name = "git-bbedit-diff"
-gdiffVersion = name + " version 1.2"
-tempDir = "/tmp/"
+gToolName = "git-bbedit-diff"
+gdiffVersion = gToolName + " version 1.2"
+gTempDir = "/tmp/"
+gConflictMarker = ".CONFLICT"
+gTheirsMarker = ".THEIRS"
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	fileNotPresentError
@@ -41,7 +43,7 @@ def createTempFileForRevision( revision, repositoryPath, chatty=True ):
 	# Create the temp file name and write out the temp file.
 	nameRoot, extension = os.path.splitext( repositoryPath )
 	_, fileName = os.path.split( nameRoot )
-	temp = tempfile.mktemp( "_" + fileName + extension, name + "-" + revision + "_", tempDir )
+	temp = tempfile.mktemp( "_" + fileName + extension, gToolName + "-" + revision + "_", gTempDir )
 	f = open( temp, 'w' )
 	f.write( output )
 	f.close()
@@ -65,7 +67,7 @@ def performDiff(compareFile, revision, chatty=True):
 	
 	if os.path.isdir( realpath ):
 		if chatty:
-			print "\t\"" + relativePath + "\" is a directory. " + name + " only compares files."
+			print "\t\"" + relativePath + "\" is a directory. " + gToolName + " only compares files."
 		return
 	
 	found = False;
@@ -110,10 +112,10 @@ def performDiff(compareFile, revision, chatty=True):
 #----------------------------------------------------------------------------------------------------------------------------
 
 def cleanTmpDirectory(chatty=True):
-	tempContents = os.listdir( tempDir )
+	tempContents = os.listdir( gTempDir )
 	for tmpFile in tempContents:
-		if tmpFile.startswith( name + "-" ):
-			filePath = tempDir + tmpFile
+		if tmpFile.startswith( gToolName + "-" ):
+			filePath = gTempDir + tmpFile
 			if chatty:
 				print "\tRemoving temp file:\"%s\"" % filePath
 			os.remove( filePath )
@@ -201,14 +203,41 @@ def diffConflict(conflictFile, chatty=True):
 		basePath, fileName = os.path.split( conflictFile )
 		print "\tThe file \"%s\" does not contain any conflicts. SKIPPING." % fileName
 	else:
-		newConflictPath = uniqueName(conflictFile, ".CONFLICT")
+		newConflictPath = uniqueName(conflictFile, gConflictMarker)
 		os.rename(conflictFile, newConflictPath)
 		
-		theirPath = uniqueName(conflictFile, ".THEIRS")
+		theirPath = uniqueName(conflictFile, gTheirsMarker)
 		
 		createConflictFiles(conflictFile, theirPath, newConflictPath)
 		command = 'bbdiff "%s" "%s"' % ( conflictFile, theirPath )
 		status, output = commands.getstatusoutput( command )
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	cleanConflictRelatedFiles
+#----------------------------------------------------------------------------------------------------------------------------
+
+def cleanConflictRelatedFiles(conflictFile, chatty=True):
+	filePath, extension = os.path.splitext( conflictFile )
+	
+	# Remove .CONFLICT files.
+	tempfile = filePath + gConflictMarker + extension
+	if os.path.exists( tempfile ):
+		if chatty:
+			_, base = os.path.split( filePath )
+			base = base + gConflictMarker + extension
+			print "\tDeleting file \"%s\"." % base
+		command = "rm " + tempfile
+		os.remove( tempfile )
+	
+	#remove .THEIRS files.
+	tempfile = filePath + gTheirsMarker + extension
+	if os.path.exists( tempfile ):
+		if chatty:
+			_, base = os.path.split( filePath )
+			base = base + gTheirsMarker + extension
+			print "\tDeleting file \"%s\"." % base
+		command = "rm " + tempfile
+		os.remove( tempfile )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	main
@@ -223,16 +252,18 @@ def main(argv=None):
 	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean] [[-c | --conflict] | [-r | --revision <revision(s)>]] file1 [file2 ...]"
 	
 	parser = OptionParser(version=gdiffVersion, description=description, usage=usage)
-	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + name + " to compare. This option is mutually exclusive to the '-c' option.")
-	parser.add_option("--clean", action="store_true", dest="cleanTmp", default=False, help="Delete all of the temp files that " + name + " has created. This will not affect the files currently being compared if any.")
-	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + name + ".")
+	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + gToolName + " to compare. This option is mutually exclusive to the '-c' option.")
+	parser.add_option("--clean", action="store_true", dest="cleanUp", default=False, help="Delete all of the temp files that " + gToolName + " has created. If any files are passed as arguments, their --conflict related files (\"" + gConflictMarker + "\", \"" + gTheirsMarker + "\") will be deleted.")
+	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + gToolName + ".")
 	parser.add_option("-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option.")
 	
 	printUsage = True
 	(options, args) = parser.parse_args(argv[1:])
-	if options.cleanTmp:
+	if options.cleanUp:
 		cleanTmpDirectory(options.chatty)
-		printUsage = False
+		for gitFile in args:
+			cleanConflictRelatedFiles(gitFile, options.chatty)
+		return 0
 	if len(args) > 0:
 		printUsage = False
 	
