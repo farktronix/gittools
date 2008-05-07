@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-#  gdiff
+#  git-bbedit-diff
 #  
 #  Created by Dan Preston on 4/09/08.
 #
@@ -8,8 +8,8 @@
 import sys, commands, os, tempfile, filecmp
 from optparse import OptionParser
 
-name = "gdiff"
-gdiffVersion = "gdiff version 1.1"
+name = "git-bbedit-diff"
+gdiffVersion = name + " version 1.1"
 tempDir = "/tmp/"
 
 #----------------------------------------------------------------------------------------------------------------------------
@@ -119,6 +119,98 @@ def cleanTmpDirectory(chatty=True):
 			os.remove( filePath )
 
 #----------------------------------------------------------------------------------------------------------------------------
+#	numConflicts
+#----------------------------------------------------------------------------------------------------------------------------
+
+def numConflicts(conflictFile):
+	foundStart = False
+	foundMiddle = False
+	
+	conflicts = 0
+	f = open(conflictFile, "r")
+	line = f.readline()
+	while line:
+		if line.startswith("<<<<<<<") and (foundStart == False) and (foundMiddle == False):
+			foundStart = True
+		if line.startswith("=======") and foundStart and (foundMiddle == False):
+			foundMiddle = True
+		if line.startswith(">>>>>>>") and foundStart and foundMiddle:
+			conflicts = conflicts + 1
+			foundStart = False
+			foundMiddle = False
+		line = f.readline()
+	f.close()
+	
+	return conflicts
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	renameConflictFile
+#----------------------------------------------------------------------------------------------------------------------------
+
+def uniqueName(path, uniqueLabel):
+	base, extension = os.path.splitext(path)
+	digit = 2
+	uniqueDigit = ""
+	if os.path.exists(base + uniqueLabel + uniqueDigit + extension):
+		uniqueDigit = str(digit)
+		digit = digit + 1
+	
+	newPath = base + uniqueLabel + uniqueDigit + extension
+	
+	return newPath
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	createConflictFiles
+#----------------------------------------------------------------------------------------------------------------------------
+
+def createConflictFiles(minePath, theirPath, conflictFile):
+	orig = open(conflictFile, "r")
+	mine = open(minePath, "w")
+	theirs = open(theirPath, "w")
+	
+	placeInTheirs = True
+	placeInMine = True
+	
+	line = orig.readline()
+	while line:
+		if line.startswith("<<<<<<<") and placeInTheirs and placeInMine:
+			placeInMine = False
+		elif line.startswith("=======") and placeInTheirs and (placeInMine == False):
+			placeInTheirs = False
+			placeInMine = True
+		elif line.startswith(">>>>>>>") and (placeInTheirs == False) and placeInMine:
+			placeInTheirs = True
+		else:
+			if placeInMine:
+				mine.write(line)
+			if placeInTheirs:
+				theirs.write(line)
+		line = orig.readline()
+		
+	orig.close()
+	mine.close()
+	theirs.close()
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	diffConflict
+#----------------------------------------------------------------------------------------------------------------------------
+
+def diffConflict(conflictFile, chatty=True):
+	conflicts = numConflicts(conflictFile)
+	if (conflicts == 0) and chatty:
+		basePath, fileName = os.path.split( conflictFile )
+		print "\tThe file \"%s\" does not contain any conflicts. SKIPPING." % fileName
+	else:
+		newConflictPath = uniqueName(conflictFile, ".CONFLICT")
+		os.rename(conflictFile, newConflictPath)
+		
+		theirPath = uniqueName(conflictFile, ".THEIRS")
+		
+		createConflictFiles(conflictFile, theirPath, newConflictPath)
+		command = 'bbdiff "%s" "%s"' % ( conflictFile, theirPath )
+		status, output = commands.getstatusoutput( command )
+
+#----------------------------------------------------------------------------------------------------------------------------
 #	main
 #----------------------------------------------------------------------------------------------------------------------------
 
@@ -128,12 +220,13 @@ def main(argv=None):
 	
 	# Set up options for the command line that we support.
 	description="A utility to compare files in a git repository using bbedit."
-	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean] [-r | --revision <revision(s)>] file1 [file2 ...]"
+	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean] [[-c | --conflict] | [-r | --revision <revision(s)>]] file1 [file2 ...]"
 	
 	parser = OptionParser(version=gdiffVersion, description=description, usage=usage)
-	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for gdiff to compare")
-	parser.add_option("--clean", action="store_true", dest="cleanTmp", default=False, help="Delete all of the temp files that gdiff has created. This will not affect the files currently being compared if any.")
-	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of gdiff")
+	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + name + " to compare. This option is mutually exclusive to the '-c' option.")
+	parser.add_option("--clean", action="store_true", dest="cleanTmp", default=False, help="Delete all of the temp files that " + name + " has created. This will not affect the files currently being compared if any.")
+	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + name + ".")
+	parser.add_option("-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option.")
 	
 	printUsage = True
 	(options, args) = parser.parse_args(argv[1:])
@@ -143,19 +236,29 @@ def main(argv=None):
 	if len(args) > 0:
 		printUsage = False
 	
+	# These options are mutually exclusive.
+	if options.revision and options.conflict:
+		printUsage = True
+	
 	# See if we can see any reason that we need to print the usage for the app.
 	if printUsage:
 		parser.print_help()
 		return 2
 	else:
-		if options.revision:
-			rev = options.revision
+		if options.conflict:
+			for gitFile in args:
+				if options.chatty:
+					print "Diffing Conflict \"%s\"." % gitFile
+				diffConflict(gitFile, options.chatty)
 		else:
-			rev = "HEAD"
-		for gitFile in args:
-			if options.chatty:
-				print "Comparing \"%s\"." % gitFile
-			performDiff(gitFile, rev, options.chatty)
+			if options.revision:
+				rev = options.revision
+			else:
+				rev = "HEAD"
+			for gitFile in args:
+				if options.chatty:
+					print "Comparing \"%s\"." % gitFile
+				performDiff(gitFile, rev, options.chatty)
 	return 0
 
 if __name__ == "__main__":
