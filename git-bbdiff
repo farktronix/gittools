@@ -6,10 +6,11 @@
 #
 
 import sys, commands, os, tempfile, filecmp
+import thread, threading
 from optparse import OptionParser
 
 gToolName = "git-bbdiff"
-gdiffVersion = gToolName + " version 1.2"
+gdiffVersion = gToolName + " version 1.3"
 gTempDir = "/tmp/"
 gConflictMarker = ".CONFLICT"
 gTheirsMarker = ".THEIRS"
@@ -55,9 +56,7 @@ def createTempFileForRevision( revision, repositoryPath, chatty=True ):
 #	performDiff
 #----------------------------------------------------------------------------------------------------------------------------
 
-def performDiff(compareFile, revision, chatty=True):
-	# Check that we have enough arguments.
-	
+def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
 	revision, _, revision2 = revision.partition("..")
 	
 	realpath = os.path.abspath( compareFile )
@@ -103,22 +102,26 @@ def performDiff(compareFile, revision, chatty=True):
 			print "\tThe file \"" + fileName + "\" has no differences."
 	else:
 		# Escape the files with quotes to allow for files with spaces.
-		command = 'bbdiff "%s" "%s"' % ( file2, file1 )
+		if revision2:
+			deleteFile2 = True
+		else:
+			deleteFile2 = False
+		# Escape the files with quotes to allow for files with spaces.
+		command = 'bbdiff "%s" "%s" --wait' % ( file2, file1 )
 		status, output = commands.getstatusoutput( command )
-
-
-#----------------------------------------------------------------------------------------------------------------------------
-#	cleanTmpDirectory
-#----------------------------------------------------------------------------------------------------------------------------
-
-def cleanTmpDirectory(chatty=True):
-	tempContents = os.listdir( gTempDir )
-	for tmpFile in tempContents:
-		if tmpFile.startswith( gToolName + "-" ):
-			filePath = gTempDir + tmpFile
-			if chatty:
-				print "\tRemoving temp file:\"%s\"" % filePath
-			os.remove( filePath )
+		os.remove( file1 )
+		if deleteFile2:
+			os.remove( file2 )
+	
+	condition.acquire()
+	diffsLeft[0] = diffsLeft[0] - 1
+	condition.notifyAll()
+	condition.release()
+	
+	condition.acquire()
+	while diffsLeft[0] > 0:
+		condition.wait()
+	condition.release()
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	numConflicts
@@ -249,20 +252,20 @@ def main(argv=None):
 	
 	# Set up options for the command line that we support.
 	description="A utility to compare files in a git repository using bbedit."
-	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean] [[-c | --conflict] | [-r | --revision <revision(s)>]] file1 [file2 ...]"
+	usage = "usage: %prog [--version] | [-h | --help] | [-q | --quiet] [--clean file1 [file2 ...]] [[-c | --conflict] | [-r | --revision <revision(s)>]] file1 [file2 ...]"
 	
 	parser = OptionParser(version=gdiffVersion, description=description, usage=usage)
 	parser.add_option("-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + gToolName + " to compare. This option is mutually exclusive to the '-c' option.")
-	parser.add_option("--clean", action="store_true", dest="cleanUp", default=False, help="Delete all of the temp files that " + gToolName + " has created. If any files are passed as arguments, their --conflict related files (\"" + gConflictMarker + "\", \"" + gTheirsMarker + "\") will be deleted.")
+	parser.add_option("--clean", action="store_true", dest="cleanUp", default=False, help="Conflict (--conflict) related files (\"" + gConflictMarker + "\", \"" + gTheirsMarker + "\") will be deleted for any files that are passed as arguments. Requires at least one file path as an argument.")
 	parser.add_option("-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + gToolName + ".")
 	parser.add_option("-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option.")
 	
 	printUsage = True
 	(options, args) = parser.parse_args(argv[1:])
 	if options.cleanUp:
-		cleanTmpDirectory(options.chatty)
-		for gitFile in args:
-			cleanConflictRelatedFiles(gitFile, options.chatty)
+		if len(args) > 0:
+			for gitFile in args:
+				cleanConflictRelatedFiles(gitFile, options.chatty)
 		return 0
 	if len(args) > 0:
 		printUsage = False
@@ -286,12 +289,21 @@ def main(argv=None):
 				rev = options.revision
 			else:
 				rev = "HEAD"
+			diffsLeft = [len( args )];
+			
+			# Create a condition lock to ensure that we wait until all the diffs are done since we use the --wait option
+			# in bbdiff.
+			condition = threading.Condition()
 			for gitFile in args:
 				if options.chatty:
 					print "Comparing \"%s\"." % gitFile
-				performDiff(gitFile, rev, options.chatty)
+				thread.start_new_thread( performDiff, (gitFile, rev, condition, diffsLeft, options.chatty) )
+			condition.acquire()
+			while diffsLeft[0] > 0:
+				condition.wait()
+			condition.release()
+			
 	return 0
 
 if __name__ == "__main__":
 	sys.exit(main())
-
