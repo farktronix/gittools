@@ -19,10 +19,9 @@ gTheirsMarker = ".THEIRS"
 #	fileNotPresentError
 #----------------------------------------------------------------------------------------------------------------------------
 
-def fileNotPresentError(repositoryPath, revision, chatty=True):
+def fileNotPresentError( repositoryPath, revision, chatty=True ):
 	if chatty:
-		print "\tFile \"%s\" does not exist in repository at revision \"%s\"." % (repositoryPath, revision)
-
+		print "\tFile \"%s\" does not exist in repository at revision \"%s\"." % ( repositoryPath, revision )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	createTempFileForRevision
@@ -51,13 +50,22 @@ def createTempFileForRevision( revision, repositoryPath, chatty=True ):
 	
 	return temp
 
+#----------------------------------------------------------------------------------------------------------------------------
+#	signalDiffProcessed
+#----------------------------------------------------------------------------------------------------------------------------
+
+def signalDiffProcessed( condition, diffsLeft ):
+	condition.acquire()
+	diffsLeft[0] = diffsLeft[0] - 1
+	condition.notifyAll()
+	condition.release()
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	performDiff
 #----------------------------------------------------------------------------------------------------------------------------
 
-def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
-	revision, _, revision2 = revision.partition("..")
+def performDiff( compareFile, revision, condition, diffsLeft, chatty=True ):
+	revision, _, revision2 = revision.partition( ".." )
 	
 	realpath = os.path.abspath( compareFile )
 	
@@ -67,11 +75,12 @@ def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
 	if os.path.isdir( realpath ):
 		if chatty:
 			print "\t\"" + relativePath + "\" is a directory. " + gToolName + " only compares files."
+		signalDiffProcessed( condition, diffsLeft )
 		return
 	
 	found = False;
 	# Figure out what the relative path of the file is from the .git folder.
-	while (found == False) and (head != "/"):
+	while ( found == False ) and ( head != "/" ):
 		gitPath = os.path.join( head, ".git" )
 		found = os.path.exists( gitPath )
 		if found == False:
@@ -79,9 +88,10 @@ def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
 			relativePath = os.path.join( tail, relativePath )
 	
 	# Make sure we are actually in a git repository.
-	if (found == False) and (head == "/"):
+	if ( found == False ) and ( head == "/" ):
 		if chatty:
 			print "\tThat file is not in a git repository."
+		signalDiffProcessed( condition, diffsLeft )
 		return
 	
 	file1 = createTempFileForRevision( revision, relativePath, chatty )
@@ -89,11 +99,12 @@ def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
 		file2 = createTempFileForRevision( revision2, relativePath, chatty )
 	else:
 		file2 = realpath
-		if os.path.exists(file2) == False:
+		if os.path.exists( file2 ) == False:
 			fileNotPresentError( relativePath, "HEAD", chatty )
 			file2 = None
 		
-	if (file1 == None) or (file2 == None):
+	if ( file1 == None ) or ( file2 == None ):
+		signalDiffProcessed( condition, diffsLeft )
 		return
 	
 	same = filecmp.cmp( file2, file1 )
@@ -102,44 +113,32 @@ def performDiff(compareFile, revision, condition, diffsLeft, chatty=True):
 			print "\tThe file \"" + fileName + "\" has no differences."
 	else:
 		# Escape the files with quotes to allow for files with spaces.
-		if revision2:
-			deleteFile2 = True
-		else:
-			deleteFile2 = False
-		# Escape the files with quotes to allow for files with spaces.
 		command = 'bbdiff "%s" "%s" --wait' % ( file2, file1 )
 		status, output = commands.getstatusoutput( command )
-		os.remove( file1 )
-		if deleteFile2:
-			os.remove( file2 )
 	
-	condition.acquire()
-	diffsLeft[0] = diffsLeft[0] - 1
-	condition.notifyAll()
-	condition.release()
+	os.remove( file1 )
+	if revision2:
+		os.remove( file2 )
 	
-	condition.acquire()
-	while diffsLeft[0] > 0:
-		condition.wait()
-	condition.release()
+	signalDiffProcessed( condition, diffsLeft )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	numConflicts
 #----------------------------------------------------------------------------------------------------------------------------
 
-def numConflicts(conflictFile):
+def numConflicts( conflictFile ):
 	foundStart = False
 	foundMiddle = False
 	
 	conflicts = 0
-	f = open(conflictFile, "r")
+	f = open( conflictFile, "r" )
 	line = f.readline()
 	while line:
-		if line.startswith("<<<<<<<") and (foundStart == False) and (foundMiddle == False):
+		if line.startswith( "<<<<<<<" ) and ( foundStart == False ) and ( foundMiddle == False ):
 			foundStart = True
-		if line.startswith("=======") and foundStart and (foundMiddle == False):
+		if line.startswith( "=======" ) and foundStart and ( foundMiddle == False ):
 			foundMiddle = True
-		if line.startswith(">>>>>>>") and foundStart and foundMiddle:
+		if line.startswith( ">>>>>>>" ) and foundStart and foundMiddle:
 			conflicts = conflicts + 1
 			foundStart = False
 			foundMiddle = False
@@ -152,12 +151,12 @@ def numConflicts(conflictFile):
 #	renameConflictFile
 #----------------------------------------------------------------------------------------------------------------------------
 
-def uniqueName(path, uniqueLabel):
-	base, extension = os.path.splitext(path)
+def uniqueName( path, uniqueLabel ):
+	base, extension = os.path.splitext( path )
 	digit = 2
 	uniqueDigit = ""
-	if os.path.exists(base + uniqueLabel + uniqueDigit + extension):
-		uniqueDigit = str(digit)
+	if os.path.exists( base + uniqueLabel + uniqueDigit + extension ):
+		uniqueDigit = str( digit )
 		digit = digit + 1
 	
 	newPath = base + uniqueLabel + uniqueDigit + extension
@@ -168,28 +167,28 @@ def uniqueName(path, uniqueLabel):
 #	createConflictFiles
 #----------------------------------------------------------------------------------------------------------------------------
 
-def createConflictFiles(minePath, theirPath, conflictFile):
-	orig = open(conflictFile, "r")
-	mine = open(minePath, "w")
-	theirs = open(theirPath, "w")
+def createConflictFiles( minePath, theirPath, conflictFile ):
+	orig = open( conflictFile, "r" )
+	mine = open( minePath, "w" )
+	theirs = open( theirPath, "w" )
 	
 	placeInTheirs = True
 	placeInMine = True
 	
 	line = orig.readline()
 	while line:
-		if line.startswith("<<<<<<<") and placeInTheirs and placeInMine:
+		if line.startswith( "<<<<<<<" ) and placeInTheirs and placeInMine:
 			placeInMine = False
-		elif line.startswith("=======") and placeInTheirs and (placeInMine == False):
+		elif line.startswith( "=======" ) and placeInTheirs and ( placeInMine == False ):
 			placeInTheirs = False
 			placeInMine = True
-		elif line.startswith(">>>>>>>") and (placeInTheirs == False) and placeInMine:
+		elif line.startswith( ">>>>>>>" ) and ( placeInTheirs == False ) and placeInMine:
 			placeInTheirs = True
 		else:
 			if placeInMine:
-				mine.write(line)
+				mine.write( line )
 			if placeInTheirs:
-				theirs.write(line)
+				theirs.write( line )
 		line = orig.readline()
 		
 	orig.close()
@@ -200,18 +199,18 @@ def createConflictFiles(minePath, theirPath, conflictFile):
 #	diffConflict
 #----------------------------------------------------------------------------------------------------------------------------
 
-def diffConflict(conflictFile, chatty=True):
-	conflicts = numConflicts(conflictFile)
-	if (conflicts == 0) and chatty:
+def diffConflict( conflictFile, chatty=True ):
+	conflicts = numConflicts( conflictFile )
+	if ( conflicts == 0 ) and chatty:
 		basePath, fileName = os.path.split( conflictFile )
 		print "\tThe file \"%s\" does not contain any conflicts. SKIPPING." % fileName
 	else:
-		newConflictPath = uniqueName(conflictFile, gConflictMarker)
-		os.rename(conflictFile, newConflictPath)
+		newConflictPath = uniqueName( conflictFile, gConflictMarker )
+		os.rename( conflictFile, newConflictPath )
 		
-		theirPath = uniqueName(conflictFile, gTheirsMarker)
+		theirPath = uniqueName( conflictFile, gTheirsMarker )
 		
-		createConflictFiles(conflictFile, theirPath, newConflictPath)
+		createConflictFiles( conflictFile, theirPath, newConflictPath )
 		command = 'bbdiff "%s" "%s"' % ( conflictFile, theirPath )
 		status, output = commands.getstatusoutput( command )
 
@@ -219,7 +218,7 @@ def diffConflict(conflictFile, chatty=True):
 #	cleanConflictRelatedFiles
 #----------------------------------------------------------------------------------------------------------------------------
 
-def cleanConflictRelatedFiles(conflictFile, chatty=True):
+def cleanConflictRelatedFiles( conflictFile, chatty=True ):
 	filePath, extension = os.path.splitext( conflictFile )
 	
 	# Remove .CONFLICT files.
@@ -261,13 +260,13 @@ def main(argv=None):
 	parser.add_option("-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option.")
 	
 	printUsage = True
-	(options, args) = parser.parse_args(argv[1:])
+	( options, args ) = parser.parse_args( argv[1:] )
 	if options.cleanUp:
-		if len(args) > 0:
+		if len( args ) > 0:
 			for gitFile in args:
-				cleanConflictRelatedFiles(gitFile, options.chatty)
-		return 0
-	if len(args) > 0:
+				cleanConflictRelatedFiles( gitFile, options.chatty )
+			return 0
+	if len( args ) > 0:
 		printUsage = False
 	
 	# These options are mutually exclusive.
@@ -283,7 +282,7 @@ def main(argv=None):
 			for gitFile in args:
 				if options.chatty:
 					print "Diffing Conflict \"%s\"." % gitFile
-				diffConflict(gitFile, options.chatty)
+				diffConflict( gitFile, options.chatty )
 		else:
 			if options.revision:
 				rev = options.revision
@@ -300,7 +299,10 @@ def main(argv=None):
 				thread.start_new_thread( performDiff, (gitFile, rev, condition, diffsLeft, options.chatty) )
 			condition.acquire()
 			while diffsLeft[0] > 0:
-				condition.wait()
+				try:
+					condition.wait()
+				except KeyboardInterrupt, e:
+					print( "\nProcess terminated.")
 			condition.release()
 			
 	return 0
