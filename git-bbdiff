@@ -254,7 +254,10 @@ def compareModified( chatty=True ):
 		modifiedFile = line.partition( "modified:" )[2].strip()
 		if modifiedFile != "":
 			modifiedFiles.append( modifiedFile )
-	compareFiles( modifiedFiles, "HEAD", chatty )
+	if len( modifiedFiles ) > 0:
+		compareFiles( modifiedFiles, "HEAD", chatty )
+	elif chatty:
+		print( "There are no modified files." )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	compareFiles
