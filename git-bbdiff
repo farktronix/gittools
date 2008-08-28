@@ -14,6 +14,7 @@ kdiffVersion = kToolName + " version 1.4"
 kTempDir = "/tmp/"
 kConflictMarker = ".CONFLICT"
 kTheirsMarker = ".THEIRS"
+kMaxComparisonsAtOnce	= 10
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	fileNotPresentError
@@ -245,7 +246,7 @@ def cleanConflictRelatedFiles( conflictFile, chatty=True ):
 #	compareModified
 #----------------------------------------------------------------------------------------------------------------------------
 
-def compareModified( chatty=True ):
+def compareModified( filterDirs, chatty=True ):
 	command = "git status"
 	output = commands.getoutput( command )
 	lines = output.split( "\n" )
@@ -253,11 +254,51 @@ def compareModified( chatty=True ):
 	for line in lines:
 		modifiedFile = line.partition( "modified:" )[2].strip()
 		if modifiedFile != "":
-			modifiedFiles.append( modifiedFile )
+			include = True
+			
+			if len( filterDirs ):
+				include = False
+				for dir in filterDirs:
+					if modifiedFile.count( dir ) > 0:
+						include = True
+						break
+			
+			if include:
+				modifiedFiles.append( modifiedFile )
+	
+	# If there are any filters passed in, we want to limit the search to paths that include those.
+	if len( filterDirs ) > 0:
+		for file in modifiedFiles:
+			found = False
+			for dir in filterDirs:
+				if file.count( dir ) > 0:
+					found = True
+	
 	if len( modifiedFiles ) > 0:
-		compareFiles( modifiedFiles, "HEAD", chatty )
+		compareFilesChunked( modifiedFiles, "HEAD", kMaxComparisonsAtOnce, chatty )
 	elif chatty:
 		print( "There are no modified files." )
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	compareFilesChunked
+#----------------------------------------------------------------------------------------------------------------------------
+
+def compareFilesChunked( files, revision, chunkSize, chatty=True ):
+	numCompared = 0
+	success = True
+	while (numCompared < len( files )) and success:
+		numComparing = min( len( files ) - numCompared, chunkSize )
+		if numComparing > 1:
+			print( "Comparing files: %d through %d of %d" % (numCompared + 1, numCompared + numComparing, len( files )) )
+		else:
+			print( "Comparing file: %d of %d" % (numCompared + 1, numCompared + 1) )
+		success = compareFiles( files[numCompared:numCompared + numComparing], "HEAD", chatty )
+		numCompared = numCompared + numComparing
+	if success and ((numCompared > 1) or (numCompared == 0)):
+		print( "Completed comparison of %d files." % numCompared )
+	elif success:
+		print( "Completed comparison of 1 file." )
+
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	compareFiles
@@ -273,12 +314,16 @@ def compareFiles( files, revision, chatty=True ):
 			print "Comparing \"%s\"." % gitFile
 		thread.start_new_thread( performDiff, (gitFile, revision, condition, diffsLeft, chatty) )
 	condition.acquire()
+	
+	success = True
 	while diffsLeft[0] > 0:
 		try:
 			condition.wait()
 		except KeyboardInterrupt, e:
+			success = False
 			print( "\nProcess terminated.")
 	condition.release()
+	return success
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	main
@@ -294,7 +339,7 @@ def main(argv=None):
 	
 	parser = OptionParser(version=kdiffVersion, description=description, usage=usage)
 	parser.add_option( "-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + kToolName + " to compare. This option is mutually exclusive to the '-c' option." )
-	parser.add_option( "-m", "--modified", action="store_true", dest="modified", help="Compare files that have been modified against HEAD." )
+	parser.add_option( "-m", "--modified", action="store_true", dest="modified", help="Compare files that have been modified against HEAD. Any arguments then act as a filter to reduce the number of compared files." )
 	parser.add_option( "--clean", action="store_true", dest="cleanUp", default=False, help="Conflict (--conflict) related files (\"" + kConflictMarker + "\", \"" + kTheirsMarker + "\") will be deleted for any files that are passed as arguments. Requires at least one file path as an argument." )
 	parser.add_option( "-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + kToolName + "." )
 	parser.add_option( "-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option." )
@@ -307,7 +352,7 @@ def main(argv=None):
 				cleanConflictRelatedFiles( gitFile, options.chatty )
 			return 0
 	elif options.modified:
-		compareModified( options.chatty )
+		compareModified( args, options.chatty )
 		return 0
 	elif len( args ) > 0:
 		printUsage = False
@@ -331,7 +376,7 @@ def main(argv=None):
 				rev = options.revision
 			else:
 				rev = "HEAD"
-			compareFiles( args, rev, options.chatty )
+			compareFilesChunked( args, rev, kMaxComparisonsAtOnce, options.chatty )
 			
 	return 0
 
