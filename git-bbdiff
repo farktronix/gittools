@@ -4,6 +4,8 @@
 #  
 #  Created by Dan Preston on 4/09/08.
 #
+# ÊTo get the latest version: git clone git://github.com/farktronix/gittools.git
+#
 
 import sys, commands, os, tempfile, filecmp
 import thread, threading
