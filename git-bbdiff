@@ -292,7 +292,7 @@ def compareFilesChunked( files, revision, chunkSize, chatty=True ):
 			print( "Comparing files: %d through %d of %d" % (numCompared + 1, numCompared + numComparing, len( files )) )
 		else:
 			print( "Comparing file: %d of %d" % (numCompared + 1, numCompared + 1) )
-		success = compareFiles( files[numCompared:numCompared + numComparing], "HEAD", chatty )
+		success = compareFiles( files[numCompared:numCompared + numComparing], revision, chatty )
 		numCompared = numCompared + numComparing
 	if success and ((numCompared > 1) or (numCompared == 0)):
 		print( "Completed comparison of %d files." % numCompared )
