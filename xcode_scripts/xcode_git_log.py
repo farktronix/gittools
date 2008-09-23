@@ -14,6 +14,7 @@
 #		Errors:		Merge with Script Output
 #
 
+import os
 import commands
 
 filename = "%%%{PBXFilePath}%%%"
