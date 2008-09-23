@@ -16,13 +16,7 @@
 
 import commands
 
-filename = "%%%{PBXFilePath}%%%"
-
-command = "/usr/local/bin/git log " + filename
-
-print( "+----------------------------------------------------------------------------------------------------------------------------" )
-print( "| git log \"" + os.path.basename( filename ) + "\"" )
-print( "+----------------------------------------------------------------------------------------------------------------------------\n" )
+command = "/usr/local/bin/git status"
 
 status, output = commands.getstatusoutput( command )
 print( output )

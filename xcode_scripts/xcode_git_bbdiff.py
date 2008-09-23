@@ -14,7 +14,6 @@
 #		Errors:		Display in Alert
 #
 
-import sys
 import commands
 import AppKit
 import time
