@@ -15,9 +15,9 @@ fi
 test $# -gt 0 && test -z "$CACHED" && NEW="$1"
 TMPDIR1=`mktemp -d /tmp/diff.XXXXXX`
 if test $CACHED = old; then
-  git-checkout-index -a --prefix=$TMPDIR1/
+  git checkout-index -a --prefix=$TMPDIR1/
 else
-  git-archive --format=tar $OLD | (cd $TMPDIR1; tar xf -)
+  git archive --format=tar $OLD | (cd $TMPDIR1; tar xf -)
 fi
 
 #if test $CACHED = new; then
