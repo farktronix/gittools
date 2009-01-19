@@ -24,7 +24,7 @@ kMaxComparisonsAtOnce	= 10
 
 def fileNotPresentError( repositoryPath, revision, chatty=True ):
 	if chatty:
-		print "\tFile \"%s\" does not exist in repository at revision \"%s\"." % ( repositoryPath, revision )
+		print( "\tFile \"%s\" does not exist in repository at revision \"%s\"." % ( repositoryPath, revision ) )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	createTempFileForRevision
@@ -70,16 +70,8 @@ def signalDiffProcessed( condition, diffsLeft ):
 def performDiff( compareFile, revision, condition, diffsLeft, chatty=True ):
 	revision, _, revision2 = revision.partition( ".." )
 	
-	realpath = os.path.abspath( compareFile )
-	
-	head, relativePath = os.path.split( realpath )
-	fileName = relativePath
-	
-	if os.path.isdir( realpath ):
-		if chatty:
-			print "\t\"" + relativePath + "\" is a directory. " + kToolName + " only compares files."
-		signalDiffProcessed( condition, diffsLeft )
-		return
+	head = os.getcwd()
+	filename = os.path.basename( compareFile )
 	
 	found = False;
 	# Figure out what the relative path of the file is from the .git folder.
@@ -88,32 +80,34 @@ def performDiff( compareFile, revision, condition, diffsLeft, chatty=True ):
 		found = os.path.exists( gitPath )
 		if found == False:
 			head, tail = os.path.split( head )
-			relativePath = os.path.join( tail, relativePath )
+	
+	realpath = os.path.join( head, compareFile )
 	
 	# Make sure we are actually in a git repository.
 	if ( found == False ) and ( head == "/" ):
 		if chatty:
-			print "\tThat file is not in a git repository."
+			print( "\tThat file is not in a git repository." )
 		signalDiffProcessed( condition, diffsLeft )
 		return
 	
-	file1 = createTempFileForRevision( revision, relativePath, chatty )
+	file1 = createTempFileForRevision( revision, compareFile, chatty )
 	if revision2:
-		file2 = createTempFileForRevision( revision2, relativePath, chatty )
+		file2 = createTempFileForRevision( revision2, compareFile, chatty )
 	else:
 		file2 = realpath
 		if os.path.exists( file2 ) == False:
-			fileNotPresentError( relativePath, "HEAD", chatty )
+			fileNotPresentError( compareFile, "HEAD", chatty )
 			file2 = None
 		
 	if ( file1 == None ) or ( file2 == None ):
 		signalDiffProcessed( condition, diffsLeft )
 		return
 	
-	same = filecmp.cmp( file2, file1 )
+	# Make sure we specify shallow as false so that a full compare is done.
+	same = filecmp.cmp( file2, file1, False )
 	if same:
 		if chatty:
-			print "\tThe file \"" + fileName + "\" has no differences."
+			print( "\tThe file \"" + fileName + "\" has no differences." )
 	else:
 		# Escape the files with quotes to allow for files with spaces.
 		command = 'bbdiff "%s" "%s" --wait' % ( file2, file1 )
@@ -206,7 +200,7 @@ def diffConflict( conflictFile, chatty=True ):
 	conflicts = numConflicts( conflictFile )
 	if ( conflicts == 0 ) and chatty:
 		basePath, fileName = os.path.split( conflictFile )
-		print "\tThe file \"%s\" does not contain any conflicts. SKIPPING." % fileName
+		print( "\tThe file \"%s\" does not contain any conflicts. SKIPPING." % fileName )
 	else:
 		newConflictPath = uniqueName( conflictFile, kConflictMarker )
 		os.rename( conflictFile, newConflictPath )
@@ -230,7 +224,7 @@ def cleanConflictRelatedFiles( conflictFile, chatty=True ):
 		if chatty:
 			_, base = os.path.split( filePath )
 			base = base + kConflictMarker + extension
-			print "\tDeleting file \"%s\"." % base
+			print( "\tDeleting file \"%s\"." % base )
 		command = "rm " + tempfile
 		os.remove( tempfile )
 	
@@ -240,46 +234,9 @@ def cleanConflictRelatedFiles( conflictFile, chatty=True ):
 		if chatty:
 			_, base = os.path.split( filePath )
 			base = base + kTheirsMarker + extension
-			print "\tDeleting file \"%s\"." % base
+			print( "\tDeleting file \"%s\"." % base )
 		command = "rm " + tempfile
 		os.remove( tempfile )
-
-#----------------------------------------------------------------------------------------------------------------------------
-#	compareModified
-#----------------------------------------------------------------------------------------------------------------------------
-
-def compareModified( filterDirs, chatty=True ):
-	command = "git status"
-	output = commands.getoutput( command )
-	lines = output.split( "\n" )
-	modifiedFiles = []
-	for line in lines:
-		modifiedFile = line.partition( "modified:" )[2].strip()
-		if modifiedFile != "":
-			include = True
-			
-			if len( filterDirs ):
-				include = False
-				for dir in filterDirs:
-					if modifiedFile.count( dir ) > 0:
-						include = True
-						break
-			
-			if include:
-				modifiedFiles.append( modifiedFile )
-	
-	# If there are any filters passed in, we want to limit the search to paths that include those.
-	if len( filterDirs ) > 0:
-		for file in modifiedFiles:
-			found = False
-			for dir in filterDirs:
-				if file.count( dir ) > 0:
-					found = True
-	
-	if len( modifiedFiles ) > 0:
-		compareFilesChunked( modifiedFiles, "HEAD", kMaxComparisonsAtOnce, chatty )
-	elif chatty:
-		print( "There are no modified files." )
 
 #----------------------------------------------------------------------------------------------------------------------------
 #	compareFilesChunked
@@ -301,7 +258,6 @@ def compareFilesChunked( files, revision, chunkSize, chatty=True ):
 	elif success:
 		print( "Completed comparison of 1 file." )
 
-
 #----------------------------------------------------------------------------------------------------------------------------
 #	compareFiles
 #----------------------------------------------------------------------------------------------------------------------------
@@ -313,7 +269,7 @@ def compareFiles( files, revision, chatty=True ):
 	condition = threading.Condition()
 	for gitFile in files:
 		if chatty:
-			print "Comparing \"%s\"." % gitFile
+			print( "Comparing \"%s\"." % gitFile )
 		thread.start_new_thread( performDiff, (gitFile, revision, condition, diffsLeft, chatty) )
 	condition.acquire()
 	
@@ -337,48 +293,75 @@ def main(argv=None):
 	
 	# Set up options for the command line that we support.
 	description="A utility to compare files in a git repository using bbedit."
-	usage = "usage: %prog [--version] | [-h] | [-q | --quiet] [--clean file1 [file2 ...]] [[-c | --conflict] | [-r | --revision <revision(s)>]] file1 [file2 ...]"
+	usage = "usage: %prog [--version] | [-h] | [-q | --quiet] [--clean file1 [file2 ...]] [[-c | --conflict] | [-f <filter-string>][-r | --revision <revision(s)>]] [file1 ...]"
 	
 	parser = OptionParser(version=kdiffVersion, description=description, usage=usage)
 	parser.add_option( "-r", "--revision", dest="revision", help="Pass a revision or a revision range using the git syntax (ie: 98d4cf..bfced5) for " + kToolName + " to compare. This option is mutually exclusive to the '-c' option." )
-	parser.add_option( "-m", "--modified", action="store_true", dest="modified", help="Compare files that have been modified against HEAD. Any arguments then act as a filter to reduce the number of compared files." )
+	parser.add_option( "-f", "--filtered", dest="filter", help="Only compare files that contain the substring passed." )
 	parser.add_option( "--clean", action="store_true", dest="cleanUp", default=False, help="Conflict (--conflict) related files (\"" + kConflictMarker + "\", \"" + kTheirsMarker + "\") will be deleted for any files that are passed as arguments. Requires at least one file path as an argument." )
 	parser.add_option( "-q", "--quiet", action="store_false", dest="chatty", default=True, help="Reduce the chatter of " + kToolName + "." )
 	parser.add_option( "-c", "--conflict", action="store_true", dest="conflict", default=False, help="The files being diffed have conflict markers that need to be resolved. This option is mutually exclusive to the '-r' option." )
 	
-	printUsage = True
+	printUsage = False
 	( options, args ) = parser.parse_args( argv[1:] )
 	if options.cleanUp:
 		if len( args ) > 0:
 			for gitFile in args:
 				cleanConflictRelatedFiles( gitFile, options.chatty )
 			return 0
-	elif options.modified:
-		compareModified( args, options.chatty )
-		return 0
-	elif len( args ) > 0:
-		printUsage = False
+	
+	if options.revision:
+		rev = options.revision
+	else:
+		rev = "HEAD"
+	
+	# Figure out which files have changed.
+	exist = True
+	command = "git diff %s --name-only -- " % rev
+	for path in args:
+		if os.path.exists( path ) == False:
+			print( 'File "%s" not found.' % path )
+			exist = False
+		command += path + " "
+	if exist == False:
+		# Print a line between the not found files and any output from comparing the files that are present.
+		print( "" )
 	
 	# These options are mutually exclusive.
 	if options.revision and options.conflict:
 		printUsage = True
-	
+
 	# See if we can see any reason that we need to print the usage for the app.
 	if printUsage:
 		parser.print_help()
 		return 2
+	
+	status, output = commands.getstatusoutput( command )
+	if status != 0:
+		if options.chatty:
+			print( output )
+		return -2
+	
+	# filter our output.
+	unfiltered = output.split( "\n" )
+	args = []
+	for diffFile in unfiltered:
+		if (options.filter == None) or (diffFile.count( options.filter ) > 0):
+			args.append( diffFile )
+	
+	# Make sure we have some files to compare
+	if ( len(args) == 0 ) or ( ( len(args) == 1 ) and ( args[0] == "" ) ):
+		if options.chatty:
+			print( "There are no modified files." )
+		return 0
+	
+	if options.conflict:
+		for gitFile in args:
+			if options.chatty:
+				print( "Diffing Conflict \"%s\"." % gitFile )
+			diffConflict( gitFile, options.chatty )
 	else:
-		if options.conflict:
-			for gitFile in args:
-				if options.chatty:
-					print "Diffing Conflict \"%s\"." % gitFile
-				diffConflict( gitFile, options.chatty )
-		else:
-			if options.revision:
-				rev = options.revision
-			else:
-				rev = "HEAD"
-			compareFilesChunked( args, rev, kMaxComparisonsAtOnce, options.chatty )
+		compareFilesChunked( args, rev, kMaxComparisonsAtOnce, options.chatty )
 			
 	return 0
 
