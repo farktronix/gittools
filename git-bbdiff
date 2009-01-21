@@ -12,7 +12,7 @@ import thread, threading
 from optparse import OptionParser
 
 kToolName = "git-bbdiff"
-kdiffVersion = kToolName + " version 1.5"
+kdiffVersion = kToolName + " version 1.6"
 kTempDir = "/tmp/"
 kConflictMarker = ".CONFLICT"
 kTheirsMarker = ".THEIRS"
