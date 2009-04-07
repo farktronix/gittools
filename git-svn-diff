@@ -1,0 +1,15 @@
+#!/bin/sh
+if [[ $1 == "" ]] ; then
+    GIT_REV=HEAD
+else
+    GIT_REV=$1^
+    GIT_REV_NEXT=$1
+fi
+
+SVN_REV=`git svn find-rev $GIT_REV`
+printf '/^--- \/dev\/null/{
+$!N
+s/^--- \/dev\/null\\n+++ \(.*\)/!!! \\1\
++++ \\1/
+}' > /tmp/devnullreplace.sed
+git diff --no-prefix $GIT_REV $GIT_REV_NEXT | sed -f /tmp/devnullreplace.sed | sed -e 's/^+++ .*/&  (working copy)/' -e "s/^--- .*/&  (revision $SVN_REV)/" -e "s/^!!! \(.*\)/--- \\1  (revision 0)/"
