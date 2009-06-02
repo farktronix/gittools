@@ -7,12 +7,12 @@
 #  To get the latest version: git clone git://github.com/farktronix/gittools.git
 #
 
-import sys, commands, os, tempfile, filecmp
+import sys, commands, os, tempfile, filecmp, string
 import thread, threading
 from optparse import OptionParser
 
 kToolName = "git-bbdiff"
-kdiffVersion = kToolName + " version 1.6"
+kdiffVersion = kToolName + " version 1.6.1"
 kTempDir = "/tmp/"
 kConflictMarker = ".CONFLICT"
 kTheirsMarker = ".THEIRS"
@@ -46,10 +46,12 @@ def createTempFileForRevision( revision, repositoryPath, chatty=True ):
 	# Create the temp file name and write out the temp file.
 	nameRoot, extension = os.path.splitext( repositoryPath )
 	_, fileName = os.path.split( nameRoot )
-	temp = tempfile.mktemp( "_" + fileName + extension, kToolName + "-" + revision + "_", kTempDir )
-	f = open( temp, 'w' )
-	f.write( output )
-	f.close()
+	
+	# Make sure if there is a slash in the name that we don't try to use it in the temp file name.
+	revision = string.replace( revision, "/", "-" )
+	f, temp = tempfile.mkstemp( "_" + fileName + extension, kToolName + "-" + revision + "_", kTempDir )
+	os.write( f, output )
+	os.close(f)
 	
 	return temp
 
