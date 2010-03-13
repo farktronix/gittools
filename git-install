@@ -1,0 +1,77 @@
+#!/usr/bin/env python
+# encoding: utf-8
+import sys, commands, os
+
+# This is a simple script for downloading, building, and installing git into /usr/local/bin.
+
+# curl http://kernel.org/pub/software/scm/git/git-1.7.0.2.tar.gz > git-1.7.0.2.tar.gz && tar xzf git-1.7.0.2.tar.gz && rm git-1.7.0.2.tar.gz && cd git-1.7.0.2 && make prefix=/usr/local && sudo make prefix=/usr/local install && cd .. && rm -Rf git-1.7.0.2
+
+#----------------------------------------------------------------------------------------------------------------------------
+#	main
+#----------------------------------------------------------------------------------------------------------------------------
+
+def main( argv=None ):
+	if argv is None:
+		argv = sys.argv
+	
+	if len( argv ) != 2:
+		print( 'Usage: git install <version>' )
+		return -2
+	
+	if os.geteuid() != 0:
+		print( 'git install must be used as root.' )
+		return -2
+	
+	version = argv[1]
+	
+	print( 'Beginning download of git source code.' )
+	
+	status, output = commands.getstatusoutput( 'curl http://kernel.org/pub/software/scm/git/git-%s.tar.gz > git-%s.tar.gz' % (version, version) )
+	if status != 0:
+		print( output )
+		return -2
+	print( 'Download succeeded.' )
+	
+	print( 'Expanding source code archive.' )
+	status, output = commands.getstatusoutput( 'tar xzf git-%s.tar.gz' % version )
+	if status != 0:
+		print( output )
+		return -2
+		
+	status, output = commands.getstatusoutput( 'rm git-%s.tar.gz' % version )
+	if status != 0:
+		print( output )
+		return -2
+	print( 'Removal of "git-%s.tar.gz" file succeeded.' % version )
+	
+	start = os.getcwd()
+	path = os.path.join( start, "git-" + version )
+	print( 'Changing directory to: %s.' % path )
+	os.chdir(path)
+	
+	print( 'Building git.' )
+	
+	status, output = commands.getstatusoutput( "make prefix=/usr/local" )
+	if status != 0:
+		print( output )
+		return -2
+	print( 'Build succeeded.' )
+
+	status, output = commands.getstatusoutput( "make prefix=/usr/local install" )
+	if status != 0:
+		print( output )
+		return -2
+	print( 'Install succeeded.' )
+
+	os.chdir(start)
+
+	status, output = commands.getstatusoutput( "rm -Rf git-%s" % version )
+	if status != 0:
+		print( output )
+		return -2
+	print( 'Removal of "git-%s" directory succeeded.' % version )
+
+	return 0
+
+if __name__ == "__main__":
+	sys.exit(main())
