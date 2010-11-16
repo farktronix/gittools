@@ -21,4 +21,4 @@ if [ ! -e "$path" ]; then
     mkdir -p "$path"
 fi
 
-git-archive --format=tar $rev | (tar xf - -C "$path")
+git archive --format=tar $rev | (tar xf - -C "$path")
